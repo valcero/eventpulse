@@ -385,11 +385,3 @@ Check `BACKEND_URL` and that the API container is healthy with `docker compose p
 
 `docker compose down -v` removes all containers and volumes, including data.
 </details>
-
-## Limitations
-
-- There is no automated test suite yet. Behavior was checked with manual end-to-end runs.
-- Authentication is a single shared API key. `owner_id` is stored but not enforced, so there is no per-user or per-application access control.
-- `/metrics` is unauthenticated. Do not expose it publicly.
-- Old `deliveries` partitions are not dropped automatically. Add a retention job if you need one.
-- The repository has no license file yet. Add one before publishing.
