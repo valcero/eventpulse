@@ -4,3 +4,4 @@ node_modules/
 *.exe
 *.log
 k8s/secret.yaml
+*.tsbuildinfo
