@@ -1,0 +1,17 @@
+groups:
+  - name: eventpulse
+    rules:
+      - alert: EventPulseHighFailureRatio
+        expr: |
+          sum(rate(eventpulse_deliveries_total{status="failed"}[5m]))
+            / clamp_min(sum(rate(eventpulse_deliveries_total[5m])), 1e-9) > 0.2
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: More than 20% of deliveries are failing permanently
+      - alert: EventPulseQueueBacklogGrowing
+        expr: max(eventpulse_queue_backlog_depth) > 1000
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: Delivery backlog above 1000 for 10 minutes

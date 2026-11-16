@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: eventpulse-config
+  namespace: eventpulse
+  labels:
+    app.kubernetes.io/part-of: eventpulse
+data:
+  WORKER_CONCURRENCY: "64"
+  DISPATCH_TIMEOUT: "5s"
+  MAX_ATTEMPTS: "5"
+  BASE_BACKOFF: "5s"
+  MAX_BACKOFF: "1h"
+  INGEST_RATE_PER_SEC: "200"
+  ENDPOINT_RATE_PER_SEC: "50"
+  # Blocks webhooks to private/loopback/link-local addresses (SSRF protection).
+  ALLOW_PRIVATE_TARGETS: "false"

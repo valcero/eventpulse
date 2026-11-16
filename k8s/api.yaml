@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eventpulse-api
+  namespace: eventpulse
+  labels: &labels
+    app.kubernetes.io/name: eventpulse-api
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: eventpulse
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: eventpulse-api
+  strategy:
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  template:
+    metadata:
+      labels: *labels
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: api
+          image: eventpulse/backend:latest
+          imagePullPolicy: IfNotPresent
+          command: ["/app/api"]
+          ports:
+            - { name: http, containerPort: 8080 }
+          env:
+            - { name: HTTP_ADDR, value: ":8080" }
+            # Safe with multiple replicas: golang-migrate holds a Postgres advisory lock.
+            - { name: MIGRATE_ON_START, value: "true" }
+          envFrom:
+            - configMapRef: { name: eventpulse-config }
+            - secretRef: { name: eventpulse-secrets }
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 100m, memory: 64Mi }
+            limits: { memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: eventpulse-api
+  namespace: eventpulse
+  labels:
+    app.kubernetes.io/name: eventpulse-api
+    app.kubernetes.io/part-of: eventpulse
+    eventpulse.io/metrics: "true"
+spec:
+  selector:
+    app.kubernetes.io/name: eventpulse-api
+  ports:
+    - { name: http, port: 8080, targetPort: http }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: eventpulse-api
+  namespace: eventpulse
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: eventpulse-api

@@ -1,0 +1,40 @@
+# OPTIONAL: scale workers on queue backlog instead of CPU.
+# Requires prometheus-adapter. NOT included in kustomization.yaml. Use this
+# INSTEAD of hpa.yaml (two HPAs on one Deployment conflict).
+#
+# 1) Add this rule to the prometheus-adapter config (rules.external):
+#
+#   - seriesQuery: 'eventpulse_queue_backlog_depth{namespace!=""}'
+#     resources:
+#       overrides: { namespace: { resource: namespace } }
+#     name: { as: "eventpulse_queue_backlog_depth" }
+#     metricsQuery: 'max(<<.Series>>{<<.LabelMatchers>>})'
+#
+# 2) Apply this HPA. It targets ~200 pending deliveries per worker pod.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: eventpulse-worker
+  namespace: eventpulse
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: eventpulse-worker
+  minReplicas: 2
+  maxReplicas: 30
+  metrics:
+    - type: External
+      external:
+        metric:
+          name: eventpulse_queue_backlog_depth
+        target:
+          type: AverageValue
+          averageValue: "200"
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 70 }
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300

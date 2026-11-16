@@ -1,0 +1,116 @@
+name: eventpulse
+
+x-backend-env: &backend-env
+  DATABASE_URL: postgres://${POSTGRES_USER:-eventpulse}:${POSTGRES_PASSWORD:-eventpulse}@postgres:5432/${POSTGRES_DB:-eventpulse}?sslmode=disable
+  REDIS_URL: redis://redis:6379/0
+  API_KEY: ${API_KEY:-}
+  WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-32}
+  DISPATCH_TIMEOUT: ${DISPATCH_TIMEOUT:-5s}
+  MAX_ATTEMPTS: ${MAX_ATTEMPTS:-5}
+  BASE_BACKOFF: ${BASE_BACKOFF:-5s}
+  INGEST_RATE_PER_SEC: ${INGEST_RATE_PER_SEC:-200}
+  ENDPOINT_RATE_PER_SEC: ${ENDPOINT_RATE_PER_SEC:-50}
+  # Local dev: allow delivering to containers on private networks (e.g. the demo receiver).
+  ALLOW_PRIVATE_TARGETS: ${ALLOW_PRIVATE_TARGETS:-true}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-eventpulse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-eventpulse}
+      POSTGRES_DB: ${POSTGRES_DB:-eventpulse}
+    ports:
+      - "${POSTGRES_HOST_PORT:-5433}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-eventpulse} -d ${POSTGRES_DB:-eventpulse}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${REDIS_HOST_PORT:-6380}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: ./backend
+    entrypoint: ["/app/api"]
+    environment:
+      <<: *backend-env
+      MIGRATE_ON_START: "true"
+      HTTP_ADDR: ":8080"
+    ports:
+      - "${API_HOST_PORT:-8080}:8080"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    restart: unless-stopped
+
+  worker:
+    build: ./backend
+    entrypoint: ["/app/worker"]
+    environment:
+      <<: *backend-env
+      METRICS_ADDR: ":9090"
+    depends_on:
+      api: { condition: service_started }
+    restart: unless-stopped
+
+  # Demo webhook target that verifies signatures. Create an endpoint with
+  # URL http://receiver:9000/hook, then set SECRET to its signing secret.
+  receiver:
+    build: ./backend
+    entrypoint: ["/app/receiver"]
+    environment:
+      SECRET: ${RECEIVER_SECRET:-}
+      FAIL_PERCENT: ${RECEIVER_FAIL_PERCENT:-30}
+    profiles: ["demo"]
+
+  frontend:
+    build: ./frontend
+    environment:
+      BACKEND_URL: http://api:8080
+      API_KEY: ${API_KEY:-}
+    ports:
+      - "${FRONTEND_HOST_PORT:-3100}:3000"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+    ports:
+      - "${PROMETHEUS_HOST_PORT:-9091}:9090"
+    depends_on:
+      - api
+      - worker
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/eventpulse.json
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_HOST_PORT:-3101}:3000"
+    depends_on:
+      - prometheus
+
+volumes:
+  pgdata:
+  grafana-data:

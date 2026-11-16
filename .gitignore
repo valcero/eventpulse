@@ -1,0 +1,6 @@
+.env
+node_modules/
+.next/
+*.exe
+*.log
+k8s/secret.yaml

@@ -1,0 +1,24 @@
+# Requires the Prometheus Operator CRDs (kube-prometheus-stack).
+# If your Prometheus selects ServiceMonitors by label, add e.g. `release: kube-prometheus-stack`.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: eventpulse
+  namespace: eventpulse
+  labels:
+    app.kubernetes.io/part-of: eventpulse
+spec:
+  selector:
+    matchLabels:
+      eventpulse.io/metrics: "true"
+  namespaceSelector:
+    matchNames: [eventpulse]
+  endpoints:
+    # The API Service exposes port "http", the worker Service exposes "metrics".
+    # Each Service matches only one of these; Prometheus skips the other.
+    - port: http
+      path: /metrics
+      interval: 15s
+    - port: metrics
+      path: /metrics
+      interval: 15s

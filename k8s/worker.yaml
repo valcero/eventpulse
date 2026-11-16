@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eventpulse-worker
+  namespace: eventpulse
+  labels: &labels
+    app.kubernetes.io/name: eventpulse-worker
+    app.kubernetes.io/component: worker
+    app.kubernetes.io/part-of: eventpulse
+spec:
+  # Managed by the HorizontalPodAutoscaler (hpa.yaml); this is the initial size.
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: eventpulse-worker
+  strategy:
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  template:
+    metadata:
+      labels: *labels
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      # Workers finish in-flight deliveries on SIGTERM; give them DISPATCH_TIMEOUT + margin.
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: worker
+          image: eventpulse/backend:latest
+          imagePullPolicy: IfNotPresent
+          command: ["/app/worker"]
+          ports:
+            - { name: metrics, containerPort: 9090 }
+          env:
+            - { name: METRICS_ADDR, value: ":9090" }
+          envFrom:
+            - configMapRef: { name: eventpulse-config }
+            - secretRef: { name: eventpulse-secrets }
+          readinessProbe:
+            httpGet: { path: /healthz, port: metrics }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /healthz, port: metrics }
+            periodSeconds: 10
+          resources:
+            # CPU requests anchor the HPA's utilization target.
+            requests: { cpu: 250m, memory: 96Mi }
+            limits: { memory: 384Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: eventpulse-worker
+  namespace: eventpulse
+  labels:
+    app.kubernetes.io/name: eventpulse-worker
+    app.kubernetes.io/part-of: eventpulse
+    eventpulse.io/metrics: "true"
+spec:
+  selector:
+    app.kubernetes.io/name: eventpulse-worker
+  ports:
+    - { name: metrics, port: 9090, targetPort: metrics }

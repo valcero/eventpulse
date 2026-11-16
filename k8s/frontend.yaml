@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eventpulse-frontend
+  namespace: eventpulse
+  labels: &labels
+    app.kubernetes.io/name: eventpulse-frontend
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/part-of: eventpulse
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: eventpulse-frontend
+  template:
+    metadata:
+      labels: *labels
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: frontend
+          image: eventpulse/frontend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - { name: http, containerPort: 3000 }
+          env:
+            - { name: BACKEND_URL, value: "http://eventpulse-api:8080" }
+            - name: API_KEY
+              valueFrom:
+                secretKeyRef: { name: eventpulse-secrets, key: API_KEY, optional: true }
+          readinessProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 15
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { memory: 384Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: eventpulse-frontend
+  namespace: eventpulse
+  labels:
+    app.kubernetes.io/name: eventpulse-frontend
+    app.kubernetes.io/part-of: eventpulse
+spec:
+  selector:
+    app.kubernetes.io/name: eventpulse-frontend
+  ports:
+    - { name: http, port: 80, targetPort: http }
